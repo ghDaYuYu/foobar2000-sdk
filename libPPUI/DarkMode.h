@@ -74,7 +74,7 @@ namespace DarkMode {
 		void AddListView(HWND);
 		void AddTreeView(HWND);
 		void AddPPListControl(HWND);
-
+		void AddDateTimePicker(HWND);
 
 		// SetWindowTheme with DarkMode_Explorer <=> Explorer
 		void AddGeneric(HWND, const wchar_t * name = L"explorer");

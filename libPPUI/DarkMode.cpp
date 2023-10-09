@@ -1,4 +1,4 @@
-﻿#include "stdafx.h"
+#include "stdafx.h"
 #include "DarkMode.h"
 #include "DarkModeEx.h"
 #include "win32_utility.h"
@@ -1184,7 +1184,7 @@ namespace DarkMode {
 		public:
 			CGripperHook(bool v) : m_dark(v) {}
 
-			BEGIN_MSG_MAP_EX(CGRipperHook)
+			BEGIN_MSG_MAP_EX(CGripperHook)
 				MSG_WM_ERASEBKGND(OnEraseBkgnd)
 				MSG_WM_PAINT(OnPaint)
 				MESSAGE_HANDLER_EX(msgSetDarkMode(), OnSetDarkMode)
@@ -1600,6 +1600,268 @@ namespace DarkMode {
 
 			bool m_dark;
 		};
+
+		class CDateTimePickerHook : public CWindowImpl<CDateTimePickerHook, CDateTimePickerCtrl> {
+        public:
+            CDateTimePickerHook(bool v) : m_dark(v) {}
+    
+            BEGIN_MSG_MAP_EX(CDateTimePickerHook)
+                MSG_WM_ERASEBKGND(OnEraseBkgnd)
+                MSG_WM_PAINT(OnPaint)
+                //MSG_WM_NOTIFY(OnNotify)
+                MSG_WM_KEYDOWN(OnKeyDown)
+                MSG_WM_LBUTTONDOWN(OnMouseBtn)
+                MSG_WM_LBUTTONUP(OnMouseBtn)
+                MESSAGE_HANDLER_EX(msgSetDarkMode(), OnSetDarkMode)
+            END_MSG_MAP()
+    
+            LRESULT OnSetDarkMode(UINT, WPARAM wp, LPARAM) {
+                switch (wp) {
+                case 0: SetDark(false); break;
+                case 1:
+                    SetDark(true);
+                    COLORREF cr = DarkMode::GetSysColor(COLOR_HIGHLIGHT, m_dark);
+                    SetMonthCalColor(MCSC_TITLEBK, cr);
+                    cr = DarkMode::GetSysColor(COLOR_HIGHLIGHTTEXT, m_dark);
+                    SetMonthCalColor(MCSC_TITLETEXT, cr);
+                    cr = DarkMode::GetSysColor(CTLCOLOR_STATIC, m_dark);
+                    SetMonthCalColor(MCSC_TRAILINGTEXT, cr);
+                    cr = DarkMode::GetSysColor(COLOR_WINDOWTEXT, m_dark);
+                    SetMonthCalColor(MCSC_TEXT, cr);
+                    cr = DarkMode::GetSysColor(COLOR_WINDOW, m_dark);
+                    SetMonthCalColor(MCSC_MONTHBK, cr);
+                    SetMonthCalColor(MCSC_BACKGROUND, cr);
+                    break;
+                }
+                return 1;
+            }
+            void SetDark(bool v) {
+                if (v != m_dark) {
+                    m_dark = v;
+                    ApplyDarkThemeCtrl(*this, m_dark);
+                }
+            }
+            void SubclassWindow(HWND wnd) {
+                WIN32_OP_D(__super::SubclassWindow(wnd));
+                ApplyDarkThemeCtrl(m_hWnd, m_dark);
+            }
+            void PaintDateTimePicker(CDCHandle dc) {
+                CRect rcClient; WIN32_OP_D(GetClientRect(rcClient));
+                CSize szTextedit;
+                auto theme = OpenThemeData(*this, L"DATEPICKER");
+                PFC_ASSERT(theme != NULL);
+                GetThemePartSize(theme, dc, DP_DATETEXT, DPDT_NORMAL, &rcClient, TS_TRUE, &szTextedit);
+    
+                DATETIMEPICKERINFO dtpi = { 0 };
+                dtpi.cbSize = sizeof(DATETIMEPICKERINFO);
+                GetDateTimePickerInfo(&dtpi);
+    
+                bool bUpdown = dtpi.stateButton & STATE_SYSTEM_INVISIBLE;
+                //bool bFocus = dtpi.stateButton & STATE_SYSTEM_FOCUSED;
+                //bool bDisabled = dtpi.stateButton & STATE_SYSTEM_UNAVAILABLE
+                //bool bPressed = dtpi.stateButton & STATE_SYSTEM_PRESSED
+    
+                int margin = 3;
+    
+                if (bUpdown) {
+                    //todo
+                    //HWND hwndUpDown = dtpi.hwndUD;
+                    //CRect rcButton;
+                }
+                else {
+                    auto theme = OpenThemeData(*this, L"DATEPICKER");
+                    PFC_ASSERT(theme != NULL);
+                    CSize size;
+                    GetThemePartSize(theme, dc, DP_SHOWCALENDARBUTTONRIGHT, DPDT_NORMAL, &rcClient, TS_TRUE, &size);
+                    auto rc = rcClient;
+                    rc.left = rc.right - size.cy - margin;
+                    rc.top = rc.bottom - size.cy;
+                    DrawThemeBackground(theme, dc, DP_SHOWCALENDARBUTTONRIGHT, 0, &rc, nullptr);
+                    CloseThemeData(theme);
+                }
+    
+                CString text;
+                if (margin < rcClient.Width()) GetWindowText(text);
+                if (!text.IsEmpty()) {
+                    dc.SetTextColor(DarkMode::GetSysColor(COLOR_BTNTEXT));
+                    dc.SetBkColor(DarkMode::GetSysColor(COLOR_BTNFACE));
+                    dc.SetBkMode(OPAQUE);
+                    dc.SelectFont(GetFont());
+    
+                    //left margin
+                    CRect rcText = rcClient;
+                    if (bUpdown) {
+                        size_t tl = text.GetLength();
+                        if (tl < 8) {
+                            text.Insert(0, L" ");
+                        }
+                        rcText.left += margin + 3 * (8 - tl);
+                    }
+                    else {
+                        rcText.left += margin;
+                    }
+    
+                    UINT dtFlags = DT_VCENTER | DT_SINGLELINE;
+                    dc.DrawText(text, text.GetLength(), rcText, dtFlags);
+    
+                    //current date field
+                    CSize sizePairText, sizeFirstPair;
+                    dc.GetTextExtent(L"00", 2, &sizePairText);
+                    dc.GetTextExtent(text.Mid(0, 2), 2, &sizeFirstPair);
+    
+                    CRect rc_select = rcText;
+                    CString substr;
+                    if (m_cur_field == 1) {
+                        rc_select.right = rc_select.left + sizePairText.cx;
+                        substr = text.Mid(0, 2);
+                    }
+                    else if (m_cur_field == 2) {
+                        CSize szPreText;
+                        CString cpref = text.Mid(0, 3);
+                        dc.GetTextExtent(cpref, cpref.GetLength(), &szPreText);
+                        rc_select.left = rcText.left + szPreText.cx;
+                        rc_select.right = rc_select.left + sizePairText.cx;
+                        substr = text.Mid(3, 2);
+                    }
+                    else if (m_cur_field == 3) {
+                        CSize szPreText;
+                        CString cpref = text.Mid(0, 6);
+                        dc.GetTextExtent(cpref, cpref.GetLength(), &szPreText);
+                        rc_select.left = rcText.left + szPreText.cx;
+                        substr = text.Mid(6, text.GetLength() - 6);
+                    }
+    
+                    if (m_cur_field >= 1 && m_cur_field <= 3) {
+                        dc.SetTextColor(DarkMode::GetSysColor(COLOR_HIGHLIGHTTEXT));
+                        dc.SetBkColor(DarkMode::GetSysColor(COLOR_HIGHLIGHT));
+                        dc.DrawText(substr, substr.GetLength(), rc_select, dtFlags);
+                    }
+    
+                    //todo: focus
+                    dc.SetDCBrushColor(DarkMode::GetSysColor(CTLCOLOR_STATIC));
+                    dc.FrameRect(rcClient, (HBRUSH)GetStockObject(DC_BRUSH));
+                }
+                //todo: text empty
+            }
+            void OnPaint(CDCHandle dc) {
+                if (!m_dark) { SetMsgHandled(FALSE); return; }
+                if (dc) PaintDateTimePicker(dc);
+                else { CPaintDC pdc(*this); PaintDateTimePicker(pdc.m_hDC); }
+            }
+            BOOL OnEraseBkgnd(CDCHandle dc) {
+                if (m_dark) {
+                    CRect rc; GetClientRect(rc);
+                    dc.FillSolidRect(rc, GetSysColor(COLOR_WINDOW));
+                    return TRUE;
+                }
+                SetMsgHandled(FALSE); return FALSE;
+            }
+    
+            //DTN_DROPDOWN notification n/a ? (add msg handle to dlg instead)
+            //LRESULT OnNotify(UINT ctrl, LPNMHDR lpNmhdr) {
+            //	if (!m_dark) {
+            //		return FALSE;
+            //	}
+            //	if (lpNmhdr->code == (WPARAM)DTN_DROPDOWN) {
+            //		//todo: save/reset m_cur_field;
+            //		auto hwndMothCal = GetMonthCal();
+            //		SetWindowTheme(hwndMothCal, L"", L"");
+            //	}
+            //	else if (lpNmhdr->code == (WPARAM)DTN_CLOSEUP) {
+            //		//todo: restore m_cur_field
+            //	}
+            //	return FALSE;
+            //}
+    
+            size_t GetCursorField(CPoint p) {
+                size_t cur_field = 0;
+                HDC pDC = GetDC();
+                CSize szText1, szText2;
+                CString ctemp = "00";
+                GetTextExtentPoint(pDC, ctemp, ctemp.GetLength(), &szText1);
+                ctemp = "00:00";
+                GetTextExtentPoint(pDC, ctemp, ctemp.GetLength(), &szText2);
+    
+                if (p.x <= szText1.cx) {
+                    cur_field = 1;
+                }
+                else if (p.x <= szText2.cx) {
+                    cur_field = 2;
+                }
+                else {
+                    CRect rcClient;
+                    GetClientRect(&rcClient);
+    
+                    DATETIMEPICKERINFO dtpi = { 0 };
+                    dtpi.cbSize = sizeof(DATETIMEPICKERINFO);
+                    GetDateTimePickerInfo(&dtpi);
+    
+                    if (dtpi.hwndUD) {
+                        //time
+                        CRect rcButton;
+                        ::GetClientRect(dtpi.hwndUD, rcButton);
+                        if (p.x <= rcClient.right - rcButton.Height()) {
+                            cur_field = 3;
+                        }
+                    }
+                    else {
+                        //date
+                        LONG max_width = rcClient.Width() - (dtpi.rcButton.right - dtpi.rcButton.left);
+                        if (p.x <= max_width) {
+                            cur_field = 3;
+                        }
+                    }
+                }
+                return cur_field;
+            }
+            void OnMouseBtn(UINT flags, CPoint) {
+                if (!m_dark) { SetMsgHandled(FALSE); return; }
+                bool bDown = (flags & MK_LBUTTON) != 0;
+                if (bDown != m_btnDown) {
+                    m_btnDown = bDown;
+                    Invalidate();
+                }
+    
+                HDC pDC = GetDC();
+                CSize szText1, szText2;
+                CString ctemp = "00";
+                GetTextExtentPoint(pDC, ctemp, ctemp.GetLength(), &szText1);
+                ctemp = "00:00";
+                GetTextExtentPoint(pDC, ctemp, ctemp.GetLength(), &szText2);
+    
+                CPoint p;
+                if (GetCursorPos(&p))
+                {
+                    if (::ScreenToClient(m_hWnd, &p))
+                    {
+                        size_t cur_field;
+                        if (cur_field = GetCursorField(p); cur_field) {
+                            m_cur_field = cur_field;
+                        }
+                    }
+                }
+                SetMsgHandled(FALSE);
+            }
+            void OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags) {
+                if (!m_dark) { SetMsgHandled(FALSE); return; }
+                if (GetMonthCal()) return;
+    
+                bool bleft = GetKeyState(VK_LEFT) & 0x8000;
+                bool bright = GetKeyState(VK_RIGHT) & 0x8000;
+    
+                if (bright) {
+                    if (++m_cur_field > 3) m_cur_field = 1;
+                }
+                else if (bleft) {
+                    if (--m_cur_field < 1) m_cur_field = 3;
+                }
+                Invalidate();
+                SetMsgHandled(FALSE);
+            }
+            bool m_dark = false;
+            bool m_btnDown = false;
+            size_t m_cur_field = 1;
+        };
 	}
 
 	void CHooks::AddPopup(HWND wnd) {
@@ -1749,6 +2011,12 @@ namespace DarkMode {
 		// this->addOp([this, wnd] { CListControl::wndSetDarkMode(wnd, m_dark); });
 	}
 
+	void CHooks::AddDateTimePicker(HWND wnd) {
+		auto hook = new ImplementOnFinalMessage<CDateTimePickerHook>(m_dark);
+		hook->SubclassWindow(wnd);
+		this->AddCtrlMsg(wnd);
+	}
+
 	void CHooks::SetDark(bool v) {
 		// Important: some handlers to ugly things if told to apply when no state change occurred - UpdateTitleBar() stuff in particular
 		if (m_dark != v) {
@@ -1821,7 +2089,9 @@ namespace DarkMode {
 		} else if (_wcsicmp(cls, CListBox::GetWndClassName()) == 0) {
 			AddListBox(wnd);
 		} else if (_wcsicmp(cls, CReBarCtrl::GetWndClassName()) == 0) {
-			 AddReBar(wnd);
+			AddReBar(wnd);
+		} else if (_wcsicmp(cls, CDateTimePickerCtrl::GetWndClassName()) == 0) {
+			AddDateTimePicker(wnd);
 		} else {
 #if PFC_DEBUG
 			pfc::outputDebugLine(pfc::format("DarkMode: unknown class - ", buffer));
