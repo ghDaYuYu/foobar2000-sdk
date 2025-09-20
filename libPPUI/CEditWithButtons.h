@@ -44,6 +44,7 @@ public:
 	}
 	typedef std::function<void () > handler_t;
 	typedef std::function<bool (const wchar_t*) > condition_t;
+	typedef std::function<bool () > conditioned_invalidation_t;
 
 	void AddMoreButton( std::function<void ()> f );
 	void AddClearButton( const wchar_t * clearVal = L"", bool bHandleEsc = false);
@@ -65,6 +66,9 @@ public:
 			if (i.wnd != NULL) i.wnd.Invalidate();
 		}
 	}
+	void SetConditionedInvalidation(conditioned_invalidation_t conditioned_invalidation) {
+    	m_stdf_ConditionedInvalidation = conditioned_invalidation;
+    }
 	void SetShellFolderAutoComplete() {
 		SetShellAutoComplete(SHACF_FILESYS_DIRS);
 	}
@@ -101,6 +105,9 @@ private:
 	}
 	void PostCheckConditions() {
 		if ( HaveConditions() ) {
+			if (m_stdf_ConditionedInvalidation()) {
+        	    Invalidate();
+        	}
 			PostMessage( MSG_CHECKCONDITIONS, MSG_CHECKCONDITIONS_MAGIC1, MSG_CHECKCONDITIONS_MAGIC2 );
 		}
 	}
@@ -219,5 +226,6 @@ private:
 	bool m_fixedWidthAuto = false;
 	std::list< Button_t > m_buttons;
 	bool m_hasAutoComplete = false;
+	conditioned_invalidation_t m_stdf_ConditionedInvalidation = []() { return false; };
 	CWindow m_initialParent;
 };
